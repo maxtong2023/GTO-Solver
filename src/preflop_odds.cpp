@@ -5,10 +5,22 @@
 #include <cctype>
 #include <random>
 #include <vector>
+#include <cstdint>
 
 namespace {
+  constexpr std::array<int, 13> kPokerRankFromRankIndex = {
+    14, 2,3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
+  };
 
-void partial_fisher_yates_prefix(std::vector<Card>& cards, std::size_t k,
+  inline int poker_rank_from_id(std::uint8_t id){
+    return kPokerRankFromRankIndex[id % 13];
+  }
+  inline int suit_index_from_id(std::uint8_t id){
+    return static_cast<int>(id / 13);
+  }
+
+
+void partial_fisher_yates_prefix(std::vector<uint8_t>& cards, std::size_t k,
                                  std::mt19937& gen) {
   const std::size_t n = cards.size();
   if (n == 0 || k == 0) {
@@ -97,18 +109,18 @@ int highest_straight_high(std::array<bool, 15> present) {
   return 0;
 }
 
-HandValue evaluate_five(const std::array<Card, 5>& cards) {
+HandValue evaluate_five(const std::array<std::uint8_t, 5>& cards) {
   std::array<int, 15> rank_count{};
   std::array<int, 4> suit_count{};
   std::array<bool, 15> rank_present{};
   std::vector<int> ranks_desc;
   ranks_desc.reserve(5);
 
-  for (const Card& card : cards) {
-    const int rv = rank_to_value(card.rank);
+  for (const std::uint8_t& id : cards) {
+    const int rv = poker_rank_from_id(id);
     ++rank_count[rv];
     rank_present[rv] = true;
-    ++suit_count[suit_to_index(card.suit)];
+    ++suit_count[suit_index_from_id(id)];
     ranks_desc.push_back(rv);
   }
   std::sort(ranks_desc.begin(), ranks_desc.end(), std::greater<int>());
@@ -127,9 +139,9 @@ HandValue evaluate_five(const std::array<Card, 5>& cards) {
 
   if (flush) {
     std::array<bool, 15> flush_present{};
-    for (const Card& card : cards) {
-      if (suit_to_index(card.suit) == flush_suit) {
-        flush_present[rank_to_value(card.rank)] = true;
+    for (const std::uint8_t& id : cards) {
+      if (suit_index_from_id(id) == flush_suit) {
+        flush_present[poker_rank_from_id(id)] = true;
       }
     }
     const int sf_high = highest_straight_high(flush_present);
@@ -243,7 +255,7 @@ HandValue evaluate_five(const std::array<Card, 5>& cards) {
   return hv;
 }
 
-HandValue evaluate_seven(const std::array<Card, 7>& cards) {
+HandValue evaluate_seven(const std::array<std::uint8_t, 7>& cards) {
   HandValue best;
   bool initialized = false;
   for (int a = 0; a < 7; ++a) {
@@ -251,7 +263,7 @@ HandValue evaluate_seven(const std::array<Card, 7>& cards) {
       for (int c = b + 1; c < 7; ++c) {
         for (int d = c + 1; d < 7; ++d) {
           for (int e = d + 1; e < 7; ++e) {
-            std::array<Card, 5> five = {
+            std::array<std::uint8_t, 5> five = {
                 cards[a], cards[b], cards[c], cards[d], cards[e]};
             const HandValue hv = evaluate_five(five);
             if (!initialized || compare_hand_value(hv, best) > 0) {
@@ -266,8 +278,8 @@ HandValue evaluate_seven(const std::array<Card, 7>& cards) {
   return best;
 }
 
-bool cards_equal(const Card& a, const Card& b) {
-  return a.rank == b.rank && a.suit == b.suit;
+bool card_ids_equal(std::uint8_t a, std::uint8_t b) {
+  return a == b;
 }
 
 }  // namespace
@@ -339,43 +351,47 @@ PreflopOddsResult estimate_preflop_vs_random(const Card& hero_a,
                                              const Card& hero_b,
                                              int trials,
                                              std::uint32_t seed) {
+
   PreflopOddsResult result;
-  if (trials <= 0 || cards_equal(hero_a, hero_b)) {
+  result.trials = trials;
+  const std::uint8_t hero_a_id = make_card_id(hero_a);
+  const std::uint8_t hero_b_id = make_card_id(hero_b);
+  if (trials <= 0 || card_ids_equal(hero_a_id, hero_b_id)) {
     return result;
   }
 
-  result.trials = trials;
+  
 
-  std::vector<Card> deck_template;
+  std::vector<std::uint8_t> deck_template;
   deck_template.reserve(50);
   for (std::uint8_t s = 0; s < 4; ++s) {
     for (std::uint8_t r = 0; r < 13; ++r) {
-      const Card c{static_cast<Rank>(r), static_cast<Suit>(s)};
-      if (!cards_equal(c, hero_a) && !cards_equal(c, hero_b)) {
+      const std::uint8_t c = make_card_id(static_cast<Rank>(r), static_cast<Suit>(s));
+      if (!card_ids_equal(c, hero_a_id) && !card_ids_equal(c, hero_b_id)) {
         deck_template.push_back(c);
       }
     }
   }
 
   std::mt19937 rng(seed);
-  std::vector<Card> deck;
+  std::vector<std::uint8_t> deck;
   deck.reserve(deck_template.size());
 
   for (int t = 0; t < trials; ++t) {
     deck = deck_template;
     partial_fisher_yates_prefix(deck, 7, rng);
 
-    const Card villain_a = deck[0];
-    const Card villain_b = deck[1];
-    const Card board0 = deck[2];
-    const Card board1 = deck[3];
-    const Card board2 = deck[4];
-    const Card board3 = deck[5];
-    const Card board4 = deck[6];
+    const std::uint8_t villain_a = deck[0];
+    const std::uint8_t villain_b = deck[1];
+    const std::uint8_t board0 = deck[2];
+    const std::uint8_t board1 = deck[3];
+    const std::uint8_t board2 = deck[4];
+    const std::uint8_t board3 = deck[5];
+    const std::uint8_t board4 = deck[6];
 
-    const std::array<Card, 7> hero_seven = {hero_a,  hero_b,  board0, board1,
+    const std::array<std::uint8_t, 7> hero_seven = {hero_a_id,  hero_b_id,  board0, board1,
                                             board2, board3, board4};
-    const std::array<Card, 7> villain_seven = {
+    const std::array<std::uint8_t, 7> villain_seven = {
         villain_a, villain_b, board0, board1, board2, board3, board4};
 
     const HandValue hero_value = evaluate_seven(hero_seven);

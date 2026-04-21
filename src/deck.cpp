@@ -62,7 +62,7 @@ void Deck::refill_ordered() {
   cards_.reserve(52);
   for (std::uint8_t s = 0; s < 4; ++s) {
     for (std::uint8_t r = 0; r < 13; ++r) {
-      cards_.push_back(Card{static_cast<Rank>(r), static_cast<Suit>(s)});
+      cards_.push_back(make_card_id(static_cast<Rank>(r), static_cast<Suit>(s)));
     }
   }
 }
@@ -93,11 +93,11 @@ std::optional<std::pair<Card, Card>> Deck::deal() {
     return std::nullopt;
   }
 
-  const Card first = cards_.back();
+  const CardId first_id = cards_.back();
   cards_.pop_back();
-  const Card second = cards_.back();
+  const CardId second_id = cards_.back();
   cards_.pop_back();
-  return std::make_pair(first, second);
+  return std::make_pair(card_from_id(first_id), card_from_id(second_id));
 }
 
 std::size_t Deck::remaining() const { return cards_.size(); }

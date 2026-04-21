@@ -30,6 +30,20 @@ struct Card {
   Suit suit;
 };
 
+using CardId = std::uint8_t;
+
+inline CardId make_card_id(Rank r, Suit s) {
+  return static_cast<CardId>(static_cast<unsigned>(s) * 13U + static_cast<unsigned>(r));
+}
+
+inline CardId make_card_id(const Card& c){
+  return make_card_id(c.rank, c.suit);
+
+}
+inline Card card_from_id(CardId id){
+  return Card{static_cast<Rank>(id % 13), static_cast<Suit>(id / 13)};
+}
+
 class Deck {
  public:
   Deck();
@@ -40,7 +54,7 @@ class Deck {
 
  private:
   void refill_ordered();
-  std::vector<Card> cards_;
+  std::vector<CardId> cards_;
 };
 
 std::string format_card(const Card& c);
