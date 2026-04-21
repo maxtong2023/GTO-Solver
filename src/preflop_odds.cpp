@@ -2,23 +2,53 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cctype>
+#include <cstdint>
 #include <random>
 #include <vector>
-#include <cstdint>
 
 namespace {
-  constexpr std::array<int, 13> kPokerRankFromRankIndex = {
-    14, 2,3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
-  };
 
-  inline int poker_rank_from_id(std::uint8_t id){
-    return kPokerRankFromRankIndex[id % 13];
-  }
-  inline int suit_index_from_id(std::uint8_t id){
-    return static_cast<int>(id / 13);
-  }
+constexpr std::array<int, 13> kPokerRankFromRankIndex = {
+    14, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13};
 
+inline int poker_rank_from_id(std::uint8_t id) {
+  return kPokerRankFromRankIndex[id % 13];
+}
+inline int suit_index_from_id(std::uint8_t id) {
+  return static_cast<int>(id / 13);
+}
+
+struct SevenCardSummary {
+  std::array<int, 15> rank_count{};
+  std::array<int, 4> suit_count{};
+};
+
+SevenCardSummary summarize_seven(const std::array<std::uint8_t, 7>& cards) {
+  SevenCardSummary s{};
+  for (const std::uint8_t id : cards) {
+    const int r = poker_rank_from_id(id);
+    const int su = suit_index_from_id(id);
+    ++s.rank_count[r];
+    ++s.suit_count[su];
+  }
+  return s;
+}
+
+// Step 2: sanity-check the summary matches “7 cards total”.
+void debug_check_seven_summary(const SevenCardSummary& s) {
+  int rank_cards = 0;
+  for (int r = 2; r <= 14; ++r) {
+    rank_cards += s.rank_count[r];
+  }
+  int suit_cards = 0;
+  for (int su = 0; su < 4; ++su) {
+    suit_cards += s.suit_count[su];
+  }
+  assert(rank_cards == 7);
+  assert(suit_cards == 7);
+}
 
 void partial_fisher_yates_prefix(std::vector<uint8_t>& cards, std::size_t k,
                                  std::mt19937& gen) {
@@ -109,7 +139,205 @@ int highest_straight_high(std::array<bool, 15> present) {
   return 0;
 }
 
-HandValue evaluate_five(const std::array<std::uint8_t, 5>& cards) {
+struct SevenFacts {
+  std::array<bool, 15> rank_present{};
+  int straight_high = 0;
+  int flush_suit = -1;
+  int sf_high = 0;
+  int max_same_rank = 0;
+};
+
+SevenFacts seven_facts_from_summary(const SevenCardSummary& s, const std::array<std::uint8_t, 7>& cards) {
+  SevenFacts f{};
+  for (int r = 2; r <=14; r++){
+    if (s.rank_count[r] > 0){
+      f.rank_present[r] = true;
+    }
+    if (s.rank_count[r] > f.max_same_rank){
+      f.max_same_rank = s.rank_count[r]; // most cards of the same rank
+    }
+  }
+  f.straight_high = highest_straight_high(f.rank_present);
+
+  for (int su = 0; su < 4; ++su){
+    if (s.suit_count[su] >= 5){
+      f.flush_suit = su;
+      break;
+    }
+  }
+
+  if (f.flush_suit >= 0 ){
+    std::array<bool, 15> flush_rank_present{}; // replace with bitmask
+    for( const std::uint8_t& id : cards){
+      if (suit_index_from_id(id) == f.flush_suit){
+        flush_rank_present[poker_rank_from_id(id)] = true;
+      }
+    }
+    f.sf_high = highest_straight_high(flush_rank_present);
+  }
+  return f;
+}
+
+HandValue evaluate_seven_direct(const SevenCardSummary& s, const SevenFacts& facts,
+                                const std::array<std::uint8_t, 7>& cards) {
+  if (facts.sf_high > 0) {
+    HandValue hv;
+    hv.category = 8;
+    hv.tiebreakers[0] = facts.sf_high;
+    return hv;
+  }
+
+  for (int r = 14; r >= 2; --r) {
+    if (s.rank_count[r] < 4) {
+      continue;
+    }
+    int kicker = 0;
+    for (int k = 14; k >= 2; --k) {
+      if (k != r && s.rank_count[k] > 0) {
+        kicker = k;
+        break;
+      }
+    }
+    HandValue hv;
+    hv.category = 7;
+    hv.tiebreakers = {r, kicker, 0, 0, 0};
+    return hv;
+  }
+
+  bool found_fh = false;
+  HandValue best_fh{};
+  for (int t = 14; t >= 2; --t) {
+    if (s.rank_count[t] < 3) {
+      continue;
+    }
+    for (int p = 14; p >= 2; --p) {
+      if (p == t || s.rank_count[p] < 2) {
+        continue;
+      }
+      HandValue hv;
+      hv.category = 6;
+      hv.tiebreakers = {t, p, 0, 0, 0};
+      if (!found_fh || compare_hand_value(hv, best_fh) > 0) {
+        best_fh = hv;
+        found_fh = true;
+      }
+    }
+  }
+  if (found_fh) {
+    return best_fh;
+  }
+
+  if (facts.flush_suit >= 0) {
+    std::vector<int> flush_ranks;
+    flush_ranks.reserve(7);
+    for (const std::uint8_t id : cards) {
+      if (suit_index_from_id(id) == facts.flush_suit) {
+        flush_ranks.push_back(poker_rank_from_id(id));
+      }
+    }
+    std::sort(flush_ranks.begin(), flush_ranks.end(), std::greater<int>());
+    HandValue hv;
+    hv.category = 5;
+    for (int i = 0; i < 5; ++i) {
+      hv.tiebreakers[i] = flush_ranks[static_cast<std::size_t>(i)];
+    }
+    return hv;
+  }
+
+  if (facts.straight_high > 0) {
+    HandValue hv;
+    hv.category = 4;
+    hv.tiebreakers[0] = facts.straight_high;
+    return hv;
+  }
+
+  for (int r = 14; r >= 2; --r) {
+    if (s.rank_count[r] < 3) {
+      continue;
+    }
+    std::array<int, 15> rc{};
+    for (int i = 2; i <= 14; ++i) {
+      rc[i] = s.rank_count[i];
+    }
+    rc[r] -= 3;
+    HandValue hv;
+    hv.category = 3;
+    hv.tiebreakers[0] = r;
+    int ki = 1;
+    for (int k = 14; k >= 2 && ki < 3; --k) {
+      while (rc[k] > 0 && ki < 3) {
+        hv.tiebreakers[static_cast<std::size_t>(ki++)] = k;
+        --rc[k];
+      }
+    }
+    return hv;
+  }
+
+  std::vector<int> pair_ranks;
+  pair_ranks.reserve(3);
+  for (int r = 14; r >= 2; --r) {
+    if (s.rank_count[r] >= 2) {
+      pair_ranks.push_back(r);
+    }
+  }
+  if (pair_ranks.size() >= 2) {
+    const int pr0 = pair_ranks[0];
+    const int pr1 = pair_ranks[1];
+    std::array<int, 15> rc{};
+    for (int i = 2; i <= 14; ++i) {
+      rc[i] = s.rank_count[i];
+    }
+    rc[pr0] -= 2;
+    rc[pr1] -= 2;
+    int kicker = 0;
+    for (int k = 14; k >= 2; --k) {
+      if (rc[k] > 0) {
+        kicker = k;
+        break;
+      }
+    }
+    HandValue hv;
+    hv.category = 2;
+    hv.tiebreakers = {pr0, pr1, kicker, 0, 0};
+    return hv;
+  }
+
+  for (int r = 14; r >= 2; --r) {
+    if (s.rank_count[r] < 2) {
+      continue;
+    }
+    std::array<int, 15> rc{};
+    for (int i = 2; i <= 14; ++i) {
+      rc[i] = s.rank_count[i];
+    }
+    rc[r] -= 2;
+    HandValue hv;
+    hv.category = 1;
+    hv.tiebreakers[0] = r;
+    int ki = 1;
+    for (int k = 14; k >= 2 && ki < 4; --k) {
+      while (rc[k] > 0 && ki < 4) {
+        hv.tiebreakers[static_cast<std::size_t>(ki++)] = k;
+        --rc[k];
+      }
+    }
+    return hv;
+  }
+
+  HandValue hv;
+  hv.category = 0;
+  int ti = 0;
+  for (int k = 14; k >= 2 && ti < 5; --k) {
+    int c = s.rank_count[k];
+    while (c > 0 && ti < 5) {
+      hv.tiebreakers[static_cast<std::size_t>(ti++)] = k;
+      --c;
+    }
+  }
+  return hv;
+}
+
+[[maybe_unused]] HandValue evaluate_five(const std::array<std::uint8_t, 5>& cards) {
   std::array<int, 15> rank_count{};
   std::array<int, 4> suit_count{};
   std::array<bool, 15> rank_present{};
@@ -256,25 +484,26 @@ HandValue evaluate_five(const std::array<std::uint8_t, 5>& cards) {
 }
 
 HandValue evaluate_seven(const std::array<std::uint8_t, 7>& cards) {
-  HandValue best;
-  bool initialized = false;
-  for (int a = 0; a < 7; ++a) {
-    for (int b = a + 1; b < 7; ++b) {
-      for (int c = b + 1; c < 7; ++c) {
-        for (int d = c + 1; d < 7; ++d) {
-          for (int e = d + 1; e < 7; ++e) {
-            std::array<std::uint8_t, 5> five = {
-                cards[a], cards[b], cards[c], cards[d], cards[e]};
-            const HandValue hv = evaluate_five(five);
-            if (!initialized || compare_hand_value(hv, best) > 0) {
-              best = hv;
-              initialized = true;
-            }
-          }
-        }
-      }
-    }
+  const SevenCardSummary summary = summarize_seven(cards);
+  debug_check_seven_summary(summary);
+  const SevenFacts facts = seven_facts_from_summary(summary, cards);
+
+  const HandValue best = evaluate_seven_direct(summary, facts, cards);
+
+#ifndef NDEBUG
+  if (facts.flush_suit < 0) {
+    assert(best.category != 5 && best.category != 8);
   }
+  if (facts.straight_high == 0) {
+    assert(best.category != 4 && best.category != 8);
+  }
+  if (facts.max_same_rank < 4) {
+    assert(best.category != 7);
+  }
+  if (facts.max_same_rank < 3) {
+    assert(best.category != 6 && best.category != 3);
+  }
+#endif
   return best;
 }
 

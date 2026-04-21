@@ -1,7 +1,7 @@
-1. switch to yates shuffle
-2. Hardcode deck ordering 
-3. Reuse one RNG and one buffer
-4. Represent cards as integers, not structs, in the hot loop
+1. switch to yates shuffle - DONE
+2. Hardcode deck ordering - DONE
+3. Reuse one RNG and one buffer - DONE
+4. Represent cards as integers, not structs, in the hot loop - DONE
 5. Make the evaluator cheaper than 21 five card subsets
 6. batch trials for cache and branch stability
 7. parallelize the outer loop
