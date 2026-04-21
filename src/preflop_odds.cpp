@@ -20,6 +20,30 @@ inline int suit_index_from_id(std::uint8_t id) {
   return static_cast<int>(id / 13);
 }
 
+// Bit i corresponds to poker rank (i + 2), i.e. bit 0 = deuce … bit 12 = ace.
+inline constexpr std::uint16_t rank_bit(int poker_rank) {
+  return static_cast<std::uint16_t>(1u << (poker_rank - 2));
+}
+
+// Best straight high card (5–14) from a rank presence mask; 0 if none. Wheel = 5.
+inline int highest_straight_high_mask(std::uint16_t present_ranks) {
+  for (int high = 14; high >= 6; --high) {
+    std::uint16_t need = 0;
+    for (int i = 0; i < 5; ++i) {
+      need |= rank_bit(high - i);
+    }
+    if ((present_ranks & need) == need) {
+      return high;
+    }
+  }
+  constexpr std::uint16_t kWheel =
+      rank_bit(14) | rank_bit(2) | rank_bit(3) | rank_bit(4) | rank_bit(5);
+  if ((present_ranks & kWheel) == kWheel) {
+    return 5;
+  }
+  return 0;
+}
+
 struct SevenCardSummary {
   std::array<int, 15> rank_count{};
   std::array<int, 4> suit_count{};
@@ -126,54 +150,43 @@ int compare_hand_value(const HandValue& a, const HandValue& b) {
   return 0;
 }
 
-int highest_straight_high(std::array<bool, 15> present) {
-  if (present[14]) {
-    present[1] = true;  // Wheel: A-2-3-4-5
-  }
-  for (int high = 14; high >= 5; --high) {
-    if (present[high] && present[high - 1] && present[high - 2] &&
-        present[high - 3] && present[high - 4]) {
-      return high;
-    }
-  }
-  return 0;
-}
-
 struct SevenFacts {
-  std::array<bool, 15> rank_present{};
+  std::uint16_t rank_mask = 0;
   int straight_high = 0;
   int flush_suit = -1;
   int sf_high = 0;
   int max_same_rank = 0;
 };
 
-SevenFacts seven_facts_from_summary(const SevenCardSummary& s, const std::array<std::uint8_t, 7>& cards) {
+SevenFacts seven_facts_from_summary(const SevenCardSummary& s,
+                                    const std::array<std::uint8_t, 7>& cards) {
   SevenFacts f{};
-  for (int r = 2; r <=14; r++){
-    if (s.rank_count[r] > 0){
-      f.rank_present[r] = true;
-    }
-    if (s.rank_count[r] > f.max_same_rank){
-      f.max_same_rank = s.rank_count[r]; // most cards of the same rank
+  for (int r = 2; r <= 14; ++r) {
+    if (s.rank_count[r] > f.max_same_rank) {
+      f.max_same_rank = s.rank_count[r];
     }
   }
-  f.straight_high = highest_straight_high(f.rank_present);
 
-  for (int su = 0; su < 4; ++su){
-    if (s.suit_count[su] >= 5){
+  std::array<std::uint16_t, 4> suit_masks{};
+  for (const std::uint8_t id : cards) {
+    const int su = suit_index_from_id(id);
+    const int r = poker_rank_from_id(id);
+    const std::uint16_t b = rank_bit(r);
+    suit_masks[static_cast<std::size_t>(su)] |= b;
+    f.rank_mask |= b;
+  }
+  f.straight_high = highest_straight_high_mask(f.rank_mask);
+
+  for (int su = 0; su < 4; ++su) {
+    if (s.suit_count[su] >= 5) {
       f.flush_suit = su;
       break;
     }
   }
 
-  if (f.flush_suit >= 0 ){
-    std::array<bool, 15> flush_rank_present{}; // replace with bitmask
-    for( const std::uint8_t& id : cards){
-      if (suit_index_from_id(id) == f.flush_suit){
-        flush_rank_present[poker_rank_from_id(id)] = true;
-      }
-    }
-    f.sf_high = highest_straight_high(flush_rank_present);
+  if (f.flush_suit >= 0) {
+    f.sf_high = highest_straight_high_mask(
+        suit_masks[static_cast<std::size_t>(f.flush_suit)]);
   }
   return f;
 }
@@ -228,14 +241,14 @@ HandValue evaluate_seven_direct(const SevenCardSummary& s, const SevenFacts& fac
   }
 
   if (facts.flush_suit >= 0) {
-    std::vector<int> flush_ranks;
-    flush_ranks.reserve(7);
+    std::array<int, 7> flush_ranks{};
+    int n = 0;
     for (const std::uint8_t id : cards) {
       if (suit_index_from_id(id) == facts.flush_suit) {
-        flush_ranks.push_back(poker_rank_from_id(id));
+        flush_ranks[static_cast<std::size_t>(n++)] = poker_rank_from_id(id);
       }
     }
-    std::sort(flush_ranks.begin(), flush_ranks.end(), std::greater<int>());
+    std::sort(flush_ranks.begin(), flush_ranks.begin() + n, std::greater<int>());
     HandValue hv;
     hv.category = 5;
     for (int i = 0; i < 5; ++i) {
@@ -340,14 +353,14 @@ HandValue evaluate_seven_direct(const SevenCardSummary& s, const SevenFacts& fac
 [[maybe_unused]] HandValue evaluate_five(const std::array<std::uint8_t, 5>& cards) {
   std::array<int, 15> rank_count{};
   std::array<int, 4> suit_count{};
-  std::array<bool, 15> rank_present{};
+  std::uint16_t rank_mask = 0;
   std::vector<int> ranks_desc;
   ranks_desc.reserve(5);
 
   for (const std::uint8_t& id : cards) {
     const int rv = poker_rank_from_id(id);
     ++rank_count[rv];
-    rank_present[rv] = true;
+    rank_mask |= rank_bit(rv);
     ++suit_count[suit_index_from_id(id)];
     ranks_desc.push_back(rv);
   }
@@ -363,16 +376,16 @@ HandValue evaluate_seven_direct(const SevenCardSummary& s, const SevenFacts& fac
     }
   }
 
-  const int straight_high = highest_straight_high(rank_present);
+  const int straight_high = highest_straight_high_mask(rank_mask);
 
   if (flush) {
-    std::array<bool, 15> flush_present{};
+    std::uint16_t flush_mask = 0;
     for (const std::uint8_t& id : cards) {
       if (suit_index_from_id(id) == flush_suit) {
-        flush_present[poker_rank_from_id(id)] = true;
+        flush_mask |= rank_bit(poker_rank_from_id(id));
       }
     }
-    const int sf_high = highest_straight_high(flush_present);
+    const int sf_high = highest_straight_high_mask(flush_mask);
     if (sf_high > 0) {
       HandValue hv;
       hv.category = 8;  // Straight flush
