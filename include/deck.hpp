@@ -1,6 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
+#include <string>
+#include <utility>
 #include <vector>
 
 enum class Suit : std::uint8_t { Clubs, Diamonds, Hearts, Spades };
@@ -30,8 +33,12 @@ class Deck {
  public:
   Deck();
   void shuffle();
-  void deal();
+  std::optional<std::pair<Card, Card>> deal();
+  std::size_t remaining() const;
 
  private:
+  void refill_ordered();
   std::vector<Card> cards_;
 };
+
+std::string format_card(const Card& c);

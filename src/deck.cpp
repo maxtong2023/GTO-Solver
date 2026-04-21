@@ -1,9 +1,7 @@
 #include "deck.hpp"
 
 #include <algorithm>
-#include <iostream>
 #include <random>
-#include <string>
 
 namespace {
 
@@ -53,13 +51,14 @@ std::string suit_string(Suit s) {
   return "?";
 }
 
-std::string card_string(const Card& c) {
+}  // namespace
+
+std::string format_card(const Card& c) {
   return rank_string(c.rank) + " of " + suit_string(c.suit);
 }
 
-}  // namespace
-
-Deck::Deck() {
+void Deck::refill_ordered() {
+  cards_.clear();
   cards_.reserve(52);
   for (std::uint8_t s = 0; s < 4; ++s) {
     for (std::uint8_t r = 0; r < 13; ++r) {
@@ -68,22 +67,24 @@ Deck::Deck() {
   }
 }
 
+Deck::Deck() { refill_ordered(); }
+
 void Deck::shuffle() {
+  refill_ordered();
   std::random_device rd;
   std::mt19937 gen(rd());
   std::shuffle(cards_.begin(), cards_.end(), gen);
 }
 
-void Deck::deal() {
+std::optional<std::pair<Card, Card>> Deck::deal() {
   if (cards_.size() < 2) {
-    std::cout << "Not enough cards to deal.\n";
-    return;
+    return std::nullopt;
   }
-
-  const Card first = cards_[cards_.size() - 1];
-  const Card second = cards_[cards_.size() - 2];
+  const Card first = cards_.back();
   cards_.pop_back();
+  const Card second = cards_.back();
   cards_.pop_back();
-
-  std::cout << card_string(first) << ", " << card_string(second) << '\n';
+  return std::make_pair(first, second);
 }
+
+std::size_t Deck::remaining() const { return cards_.size(); }
