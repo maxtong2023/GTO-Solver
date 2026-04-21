@@ -2,6 +2,9 @@
 #include "deck.hpp"
 #include "preflop_odds.hpp"
 
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <optional>
 #include <random>
 #include <string>
@@ -22,6 +25,9 @@
 #endif
 
 namespace {
+
+std::random_device rd;
+std::mt19937 gen(rd());
 
 void glfw_error_callback(int error, const char* description) {
   std::fprintf(stderr, "GLFW error %d: %s\n", error, description);
@@ -94,6 +100,42 @@ void image_card_texture(ImTextureID tex, const ImVec2& size) {
   ImGui::Image(tex, size, kCardUv0, kCardUv1);
 }
 
+void append_mc_benchmark_tsv(const std::string& tank_dir, int trials,
+                             const std::string& hero1, const std::string& hero2,
+                             std::size_t deck_remaining, double elapsed_ms,
+                             const PreflopOddsResult& r) {
+  namespace fs = std::filesystem;
+  const fs::path dir(tank_dir);
+  std::error_code ec;
+  fs::create_directories(dir, ec);
+  if (ec) {
+    return;
+  }
+  const fs::path file = dir / "mc_preflop.tsv";
+  bool need_header = true;
+  if (fs::exists(file)) {
+    const auto sz = fs::file_size(file, ec);
+    need_header = static_cast<bool>(ec) || sz == 0;
+  }
+  std::ofstream out(file, std::ios::out | std::ios::app);
+  if (!out) {
+    return;
+  }
+  if (need_header) {
+    out << "# trials\thero1\thero2\tdeck_remaining\telapsed_ms\twin_pct\t"
+           "tie_pct\tlose_pct\ttrials_per_s\n";
+  }
+  const double denom = static_cast<double>(r.trials);
+  const double win_pct = 100.0 * static_cast<double>(r.wins) / denom;
+  const double tie_pct = 100.0 * static_cast<double>(r.ties) / denom;
+  const double lose_pct = 100.0 * static_cast<double>(r.losses) / denom;
+  const double trials_per_s =
+      elapsed_ms > 0.0 ? (denom / (elapsed_ms / 1000.0)) : 0.0;
+  out << trials << '\t' << hero1 << '\t' << hero2 << '\t' << deck_remaining
+      << '\t' << elapsed_ms << '\t' << win_pct << '\t' << tie_pct << '\t'
+      << lose_pct << '\t' << trials_per_s << '\n';
+}
+
 void draw_card_back_placeholder(const ImVec2& size) {
   const ImVec2 p0 = ImGui::GetCursorScreenPos();
   const ImVec2 p1 = ImVec2(p0.x + size.x, p0.y + size.y);
@@ -111,6 +153,10 @@ void draw_card_back_placeholder(const ImVec2& size) {
 
 #ifndef POCKER_ASSETS_DIR
 #define POCKER_ASSETS_DIR "assets"
+#endif
+
+#ifndef POCKER_TANK_DIR
+#define POCKER_TANK_DIR "tank"
 #endif
 
 int main() {
@@ -155,7 +201,7 @@ int main() {
         textures.load_from_directory(assets_dir, &load_error);
 
     Deck deck;
-    deck.shuffle();
+    deck.shuffle(gen);
 
     char status[256] = "Click Deal for two cards. Shuffle refills to 52.";
     std::optional<std::pair<Card, Card>> last_hole;
@@ -165,12 +211,31 @@ int main() {
     char odds_status[256] = "Enter hero hand and click Estimate Odds.";
     PreflopOddsResult odds_result{};
     bool has_odds_result = false;
-    auto run_odds_calc = [&](const Card& hero_a, const Card& hero_b) {
-      odds_result = estimate_preflop_vs_random(hero_a, hero_b, monte_carlo_trials,
-                                               std::random_device{}());
+    double last_mc_ms = 0.0;
+    const std::string tank_dir(POCKER_TANK_DIR);
+
+    auto run_odds_calc = [&](const Card& hero_a, const Card& hero_b,
+                             std::size_t deck_remaining, bool log_to_tank) {
+      const auto t0 = std::chrono::steady_clock::now();
+      odds_result = estimate_preflop_vs_random(
+          hero_a, hero_b, monte_carlo_trials, std::random_device{}());
+      const auto t1 = std::chrono::steady_clock::now();
+      const double elapsed_ms =
+          std::chrono::duration<double, std::milli>(t1 - t0).count();
+      last_mc_ms = elapsed_ms;
       has_odds_result = true;
-      std::snprintf(odds_status, sizeof(odds_status),
-                    "Estimated with %d random boards/hands.", odds_result.trials);
+      std::snprintf(
+          odds_status, sizeof(odds_status),
+          "Estimated with %d trials in %.2f ms (%.0f trials/s).",
+          odds_result.trials, elapsed_ms,
+          elapsed_ms > 0.0
+              ? static_cast<double>(odds_result.trials) / (elapsed_ms / 1000.0)
+              : 0.0);
+      if (log_to_tank) {
+        append_mc_benchmark_tsv(tank_dir, monte_carlo_trials,
+                                card_code(hero_a), card_code(hero_b),
+                                deck_remaining, elapsed_ms, odds_result);
+      }
     };
 
     while (glfwWindowShouldClose(window) == 0) {
@@ -202,7 +267,7 @@ int main() {
       }
 
       if (ImGui::Button("Shuffle", ImVec2(140.0F, 0.0F))) {
-        deck.shuffle();
+        deck.shuffle(gen);
         last_hole.reset();
         std::snprintf(status, sizeof(status),
                       "Shuffled full deck. %zu cards.", deck.remaining());
@@ -220,9 +285,11 @@ int main() {
                         code_a.c_str());
           std::snprintf(hero_card_b_input, sizeof(hero_card_b_input), "%s",
                         code_b.c_str());
-          run_odds_calc(last_hole->first, last_hole->second);
+          const std::size_t remaining_after_deal = deck.remaining();
+          run_odds_calc(last_hole->first, last_hole->second, remaining_after_deal,
+                        true);
           std::snprintf(status, sizeof(status), "%zu cards left in deck.",
-                        deck.remaining());
+                        remaining_after_deal);
         } else {
           last_hole.reset();
           has_odds_result = false;
@@ -261,11 +328,14 @@ int main() {
                         "Card 1 and Card 2 must be different.");
           has_odds_result = false;
         } else {
-          run_odds_calc(hero_a, hero_b);
+          run_odds_calc(hero_a, hero_b, deck.remaining(), true);
         }
       }
       
       ImGui::TextWrapped("%s", odds_status);
+      if (last_mc_ms > 0.0) {
+        ImGui::TextDisabled("Last MC wall time: %.2f ms", last_mc_ms);
+      }
       if (has_odds_result && odds_result.trials > 0) {
         const float denom = static_cast<float>(odds_result.trials);
         const float win_pct = 100.0F * static_cast<float>(odds_result.wins) / denom;

@@ -56,7 +56,7 @@ std::string suit_string(Suit s) {
 std::string format_card(const Card& c) {
   return rank_string(c.rank) + " of " + suit_string(c.suit);
 }
-
+//optimize by just hardcoding the 52 cards in a vector
 void Deck::refill_ordered() {
   cards_.clear();
   cards_.reserve(52);
@@ -67,13 +67,25 @@ void Deck::refill_ordered() {
   }
 }
 
+
+
 Deck::Deck() { refill_ordered(); }
 
-void Deck::shuffle() {
+void Deck::shuffle(std::mt19937& gen) {
   refill_ordered();
-  std::random_device rd;
-  std::mt19937 gen(rd());
   std::shuffle(cards_.begin(), cards_.end(), gen);
+}
+
+
+//alternative shuffler that just returns the 7 required cards.
+void Deck::yates_shuffle(std::mt19937& gen) {
+  refill_ordered();
+  for (std::size_t i = 0; i < 7; ++i){
+    std::uniform_int_distribution<std::size_t> dist(i, cards_.size() - 1);
+    std::size_t j = dist(gen);
+    std::swap(cards_[i], cards_[j]);
+  }
+
 }
 
 std::optional<std::pair<Card, Card>> Deck::deal() {

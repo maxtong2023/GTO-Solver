@@ -69,7 +69,9 @@ target_include_directories(
 target_link_libraries(poker PRIVATE imgui)
 
 target_compile_definitions(
-  poker PRIVATE "POCKER_ASSETS_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/assets\""
+  poker
+  PRIVATE "POCKER_ASSETS_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/assets\""
+          "POCKER_TANK_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tank\""
 )
 
 if(APPLE)

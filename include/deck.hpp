@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <random>
 #include <optional>
 #include <string>
 #include <utility>
@@ -32,7 +33,8 @@ struct Card {
 class Deck {
  public:
   Deck();
-  void shuffle();
+  void shuffle(std::mt19937& gen);
+  void yates_shuffle(std::mt19937& gen);
   std::optional<std::pair<Card, Card>> deal();
   std::size_t remaining() const;
 
