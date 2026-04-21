@@ -1,0 +1,17 @@
+# Build
+build/
+cmake-build-*/
+out/
+
+# CMake
+CMakeUserPresets.json
+compile_commands.json
+
+# IDE
+.idea/
+.vscode/
+*.xcodeproj/
+*.xcworkspace/
+
+# macOS
+.DS_Store
