@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <string>
 #include <vector>
 
 #if defined(__APPLE__)
@@ -17,18 +18,18 @@
 
 namespace {
 
-std::string suit_folder_name(Suit s) {
+char suit_file_letter(Suit s) {
   switch (s) {
     case Suit::Clubs:
-      return "clubs";
+      return 'C';
     case Suit::Diamonds:
-      return "diamonds";
+      return 'D';
     case Suit::Hearts:
-      return "hearts";
+      return 'H';
     case Suit::Spades:
-      return "spades";
+      return 'S';
   }
-  return "clubs";
+  return 'C';
 }
 
 std::string rank_file_suffix(Rank r) {
@@ -111,9 +112,6 @@ std::size_t CardTextures::card_index(Card c) {
 CardTextures::~CardTextures() { destroy_gl(); }
 
 void CardTextures::destroy_gl() {
-  if (!loaded_) {
-    return;
-  }
   for (std::uint32_t id : face_textures_) {
     if (id != 0U) {
       GLuint tex = static_cast<GLuint>(id);
@@ -153,8 +151,8 @@ bool CardTextures::load_from_directory(const std::string& dir,
     for (std::uint8_t ri = 0; ri < 13; ++ri) {
       const Card c{static_cast<Rank>(ri), static_cast<Suit>(si)};
       const fs::path path =
-          root / (suit_folder_name(c.suit) + "_" + rank_file_suffix(c.rank) +
-                  ".png");
+          root / (std::string(1, suit_file_letter(c.suit)) +
+                  rank_file_suffix(c.rank) + ".png");
       int w = 0;
       int h = 0;
       if (!load_png_rgba(path.string(), &w, &h, &rgba, &err)) {
@@ -179,19 +177,22 @@ bool CardTextures::load_from_directory(const std::string& dir,
     }
   }
 
-  const fs::path back_path = root / "back_dark.png";
-  int bw = 0;
-  int bh = 0;
-  if (!load_png_rgba(back_path.string(), &bw, &bh, &rgba, &err)) {
-    destroy_gl();
-    if (error_message != nullptr) {
-      *error_message = err;
+  const fs::path back_candidates[] = {root / "back.png",
+                                       root / "back_dark.png"};
+  back_texture_ = 0U;
+  back_width_ = 0;
+  back_height_ = 0;
+  for (const fs::path& back_path : back_candidates) {
+    int bw = 0;
+    int bh = 0;
+    if (fs::is_regular_file(back_path) &&
+        load_png_rgba(back_path.string(), &bw, &bh, &rgba, &err)) {
+      back_texture_ = create_texture_rgba(bw, bh, rgba.data());
+      back_width_ = bw;
+      back_height_ = bh;
+      break;
     }
-    return false;
   }
-  back_texture_ = create_texture_rgba(bw, bh, rgba.data());
-  back_width_ = bw;
-  back_height_ = bh;
 
   loaded_ = true;
   return true;
@@ -206,7 +207,7 @@ ImTextureID CardTextures::texture_for(Card c) const {
 }
 
 ImTextureID CardTextures::back_texture() const {
-  if (!loaded_) {
+  if (!loaded_ || back_texture_ == 0U) {
     return static_cast<ImTextureID>(0);
   }
   return static_cast<ImTextureID>(static_cast<std::uintptr_t>(back_texture_));

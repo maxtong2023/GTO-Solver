@@ -21,6 +21,7 @@ class CardTextures {
 
   ImTextureID texture_for(Card c) const;
   ImTextureID back_texture() const;
+  bool has_back() const { return back_texture_ != 0U; }
 
   int face_width() const { return face_width_; }
   int face_height() const { return face_height_; }

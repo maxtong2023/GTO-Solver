@@ -34,6 +34,27 @@ ImVec2 fitted_size(int w, int h, float max_h) {
   return ImVec2(ww, hh);
 }
 
+// Flip U so card art matches source PNGs (OpenGL/ImGui default sampling was mirrored).
+constexpr ImVec2 kCardUv0(1.0F, 0.0F);
+constexpr ImVec2 kCardUv1(0.0F, 1.0F);
+
+void image_card_texture(ImTextureID tex, const ImVec2& size) {
+  ImGui::Image(tex, size, kCardUv0, kCardUv1);
+}
+
+void draw_card_back_placeholder(const ImVec2& size) {
+  const ImVec2 p0 = ImGui::GetCursorScreenPos();
+  const ImVec2 p1 = ImVec2(p0.x + size.x, p0.y + size.y);
+  ImDrawList* const dl = ImGui::GetWindowDrawList();
+  dl->AddRectFilled(p0, p1, IM_COL32(36, 44, 58, 255), 6.0F);
+  dl->AddRect(p0, p1, IM_COL32(90, 100, 120, 255), 6.0F, 0, 2.0F);
+  const char* label = "Back";
+  const ImVec2 ts = ImGui::CalcTextSize(label);
+  dl->AddText(ImVec2(p0.x + (size.x - ts.x) * 0.5F, p0.y + (size.y - ts.y) * 0.5F),
+              IM_COL32(210, 215, 230, 255), label);
+  ImGui::Dummy(size);
+}
+
 }  // namespace
 
 #ifndef POCKER_ASSETS_DIR
@@ -112,7 +133,7 @@ int main() {
       if (!textures_ok) {
         ImGui::TextColored(ImVec4(1.0F, 0.45F, 0.45F, 1.0F), "%s",
                            load_error.c_str());
-        ImGui::TextUnformatted("Expected PNGs like clubs_A.png in assets/.");
+        ImGui::TextUnformatted("Expected PNGs like CA.png, H10.png in assets/.");
       }
 
       if (ImGui::Button("Shuffle", ImVec2(140.0F, 0.0F))) {
@@ -144,8 +165,11 @@ int main() {
       const float max_card_h = 280.0F;
       const ImVec2 face_sz = fitted_size(textures.face_width(),
                                          textures.face_height(), max_card_h);
-      const ImVec2 back_sz = fitted_size(textures.back_width(),
-                                         textures.back_height(), max_card_h);
+      const ImVec2 back_sz =
+          textures.has_back()
+              ? fitted_size(textures.back_width(), textures.back_height(),
+                            max_card_h)
+              : face_sz;
 
       if (ImGui::BeginTable(
               "cards", 2,
@@ -158,11 +182,13 @@ int main() {
         ImGui::Spacing();
         if (textures_ok) {
           if (last_hole.has_value()) {
-            ImGui::Image(textures.texture_for(last_hole->first), face_sz);
+            image_card_texture(textures.texture_for(last_hole->first), face_sz);
             ImGui::TextWrapped("%s",
                                format_card(last_hole->first).c_str());
+          } else if (textures.has_back()) {
+            image_card_texture(textures.back_texture(), back_sz);
           } else {
-            ImGui::Image(textures.back_texture(), back_sz);
+            draw_card_back_placeholder(face_sz);
           }
         }
         ImGui::EndChild();
@@ -175,11 +201,13 @@ int main() {
         ImGui::Spacing();
         if (textures_ok) {
           if (last_hole.has_value()) {
-            ImGui::Image(textures.texture_for(last_hole->second), face_sz);
+            image_card_texture(textures.texture_for(last_hole->second), face_sz);
             ImGui::TextWrapped("%s",
                                format_card(last_hole->second).c_str());
+          } else if (textures.has_back()) {
+            image_card_texture(textures.back_texture(), back_sz);
           } else {
-            ImGui::Image(textures.back_texture(), back_sz);
+            draw_card_back_placeholder(face_sz);
           }
         }
         ImGui::EndChild();
