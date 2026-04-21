@@ -1,6 +1,8 @@
-#include <iostream>
+#include "deck.hpp"
 
 int main() {
-  std::cout << "Poker\n";
+  Deck deck;
+  deck.shuffle();
+  deck.deal();
   return 0;
 }

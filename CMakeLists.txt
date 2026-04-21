@@ -7,6 +7,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_executable(poker
   src/main.cpp
+  src/deck.cpp
+)
+
+target_include_directories(poker PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 
 target_compile_options(poker PRIVATE
