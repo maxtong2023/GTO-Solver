@@ -57,6 +57,7 @@ add_executable(
   src/main.cpp
   src/deck.cpp
   src/card_textures.cpp
+  src/preflop_odds.cpp
 )
 
 target_include_directories(

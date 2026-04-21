@@ -20,16 +20,17 @@ namespace {
 
 char suit_file_letter(Suit s) {
   switch (s) {
+    // Asset pack uses non-standard suit letters.
     case Suit::Clubs:
-      return 'C';
-    case Suit::Diamonds:
-      return 'D';
-    case Suit::Hearts:
       return 'H';
+    case Suit::Diamonds:
+      return 'C';
+    case Suit::Hearts:
+      return 'D';
     case Suit::Spades:
       return 'S';
   }
-  return 'C';
+  return 'H';
 }
 
 std::string rank_file_suffix(Rank r) {

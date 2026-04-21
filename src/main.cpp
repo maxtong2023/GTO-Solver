@@ -1,7 +1,9 @@
 #include "card_textures.hpp"
 #include "deck.hpp"
+#include "preflop_odds.hpp"
 
 #include <optional>
+#include <random>
 #include <string>
 
 #include <imgui.h>
@@ -23,6 +25,56 @@ namespace {
 
 void glfw_error_callback(int error, const char* description) {
   std::fprintf(stderr, "GLFW error %d: %s\n", error, description);
+}
+
+char suit_code(Suit suit) {
+  switch (suit) {
+    case Suit::Clubs:
+      return 'c';
+    case Suit::Diamonds:
+      return 'd';
+    case Suit::Hearts:
+      return 'h';
+    case Suit::Spades:
+      return 's';
+  }
+  return 'c';
+}
+
+std::string rank_code(Rank rank) {
+  switch (rank) {
+    case Rank::Ace:
+      return "A";
+    case Rank::King:
+      return "K";
+    case Rank::Queen:
+      return "Q";
+    case Rank::Jack:
+      return "J";
+    case Rank::Ten:
+      return "T";
+    case Rank::Nine:
+      return "9";
+    case Rank::Eight:
+      return "8";
+    case Rank::Seven:
+      return "7";
+    case Rank::Six:
+      return "6";
+    case Rank::Five:
+      return "5";
+    case Rank::Four:
+      return "4";
+    case Rank::Three:
+      return "3";
+    case Rank::Two:
+      return "2";
+  }
+  return "?";
+}
+
+std::string card_code(const Card& card) {
+  return rank_code(card.rank) + suit_code(card.suit);
 }
 
 ImVec2 fitted_size(int w, int h, float max_h) {
@@ -107,6 +159,19 @@ int main() {
 
     char status[256] = "Click Deal for two cards. Shuffle refills to 52.";
     std::optional<std::pair<Card, Card>> last_hole;
+    char hero_card_a_input[8] = "As";
+    char hero_card_b_input[8] = "Ah";
+    int monte_carlo_trials = 20000;
+    char odds_status[256] = "Enter hero hand and click Estimate Odds.";
+    PreflopOddsResult odds_result{};
+    bool has_odds_result = false;
+    auto run_odds_calc = [&](const Card& hero_a, const Card& hero_b) {
+      odds_result = estimate_preflop_vs_random(hero_a, hero_b, monte_carlo_trials,
+                                               std::random_device{}());
+      has_odds_result = true;
+      std::snprintf(odds_status, sizeof(odds_status),
+                    "Estimated with %d random boards/hands.", odds_result.trials);
+    };
 
     while (glfwWindowShouldClose(window) == 0) {
       glfwPollEvents();
@@ -149,13 +214,69 @@ int main() {
         const auto dealt = deck.deal();
         if (dealt.has_value()) {
           last_hole = *dealt;
+          const std::string code_a = card_code(last_hole->first);
+          const std::string code_b = card_code(last_hole->second);
+          std::snprintf(hero_card_a_input, sizeof(hero_card_a_input), "%s",
+                        code_a.c_str());
+          std::snprintf(hero_card_b_input, sizeof(hero_card_b_input), "%s",
+                        code_b.c_str());
+          run_odds_calc(last_hole->first, last_hole->second);
           std::snprintf(status, sizeof(status), "%zu cards left in deck.",
                         deck.remaining());
         } else {
           last_hole.reset();
+          has_odds_result = false;
+          std::snprintf(odds_status, sizeof(odds_status),
+                        "Not enough cards to assign hero hand.");
           std::snprintf(status, sizeof(status),
                         "Not enough cards — press Shuffle.");
         }
+      }
+
+      ImGui::Separator();
+      ImGui::TextUnformatted("Preflop Monte Carlo (heads-up vs random)");
+      ImGui::SetNextItemWidth(80.0F);
+      ImGui::InputText("Card 1", hero_card_a_input, sizeof(hero_card_a_input));
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(80.0F);
+      ImGui::InputText("Card 2", hero_card_b_input, sizeof(hero_card_b_input));
+      ImGui::SetNextItemWidth(140.0F);
+      ImGui::InputInt("Trials", &monte_carlo_trials, 1000, 10000);
+      if (monte_carlo_trials < 1000) {
+        monte_carlo_trials = 1000;
+      }
+      if (ImGui::Button("Estimate Odds", ImVec2(180.0F, 0.0F))) {
+        Card hero_a{};
+        Card hero_b{};
+        const bool parsed_a =
+            parse_card_code(std::string(hero_card_a_input), &hero_a);
+        const bool parsed_b =
+            parse_card_code(std::string(hero_card_b_input), &hero_b);
+        if (!parsed_a || !parsed_b) {
+          std::snprintf(odds_status, sizeof(odds_status),
+                        "Use codes like As, Kh, Td, 9c.");
+          has_odds_result = false;
+        } else if (hero_a.rank == hero_b.rank && hero_a.suit == hero_b.suit) {
+          std::snprintf(odds_status, sizeof(odds_status),
+                        "Card 1 and Card 2 must be different.");
+          has_odds_result = false;
+        } else {
+          run_odds_calc(hero_a, hero_b);
+        }
+      }
+      
+      ImGui::TextWrapped("%s", odds_status);
+      if (has_odds_result && odds_result.trials > 0) {
+        const float denom = static_cast<float>(odds_result.trials);
+        const float win_pct = 100.0F * static_cast<float>(odds_result.wins) / denom;
+        const float tie_pct = 100.0F * static_cast<float>(odds_result.ties) / denom;
+        const float lose_pct =
+            100.0F * static_cast<float>(odds_result.losses) / denom;
+        ImGui::Text("Win: %.2f%%", win_pct);
+        ImGui::SameLine();
+        ImGui::Text("Tie: %.2f%%", tie_pct);
+        ImGui::SameLine();
+        ImGui::Text("Lose: %.2f%%", lose_pct);
       }
 
       ImGui::Separator();
@@ -210,6 +331,7 @@ int main() {
             draw_card_back_placeholder(face_sz);
           }
         }
+        
         ImGui::EndChild();
 
         ImGui::EndTable();
