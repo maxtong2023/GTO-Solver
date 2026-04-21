@@ -8,6 +8,19 @@
 
 namespace {
 
+void partial_fisher_yates_prefix(std::vector<Card>& cards, std::size_t k,
+                                 std::mt19937& gen) {
+  const std::size_t n = cards.size();
+  if (n == 0 || k == 0) {
+    return;
+  }
+  const std::size_t kk = std::min(k, n);
+  for (std::size_t i = 0; i < kk; ++i) {
+    std::uniform_int_distribution<std::size_t> dist(i, n - 1);
+    std::swap(cards[i], cards[dist(gen)]);
+  }
+}
+
 int rank_to_value(Rank rank) {
   switch (rank) {
     case Rank::Ace:
@@ -333,21 +346,24 @@ PreflopOddsResult estimate_preflop_vs_random(const Card& hero_a,
 
   result.trials = trials;
 
-  std::vector<Card> deck;
-  deck.reserve(50);
+  std::vector<Card> deck_template;
+  deck_template.reserve(50);
   for (std::uint8_t s = 0; s < 4; ++s) {
     for (std::uint8_t r = 0; r < 13; ++r) {
       const Card c{static_cast<Rank>(r), static_cast<Suit>(s)};
       if (!cards_equal(c, hero_a) && !cards_equal(c, hero_b)) {
-        deck.push_back(c);
+        deck_template.push_back(c);
       }
     }
   }
 
   std::mt19937 rng(seed);
+  std::vector<Card> deck;
+  deck.reserve(deck_template.size());
 
   for (int t = 0; t < trials; ++t) {
-    std::shuffle(deck.begin(), deck.end(), rng);
+    deck = deck_template;
+    partial_fisher_yates_prefix(deck, 7, rng);
 
     const Card villain_a = deck[0];
     const Card villain_b = deck[1];

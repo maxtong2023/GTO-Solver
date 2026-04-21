@@ -92,6 +92,7 @@ std::optional<std::pair<Card, Card>> Deck::deal() {
   if (cards_.size() < 2) {
     return std::nullopt;
   }
+
   const Card first = cards_.back();
   cards_.pop_back();
   const Card second = cards_.back();
